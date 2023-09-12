@@ -1,0 +1,69 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "AWS CloudFormation Template: EC2 instance for Jenkins in an existing VPC"
+
+Parameters:
+  KeyName:
+    Description: "EC2 Key Pair"
+    Type: "AWS::EC2::KeyPair::KeyName"
+  S3Bucket:
+    Description: "S3 Bucket for storing files"
+    Type: "String"
+
+Resources:
+  JenkinsEC2Instance:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      InstanceType: "t2.micro"
+      KeyName: !Ref KeyName
+      ImageId: "ami-0e80a462ede03e653" # Amazon Linux 2 LTS (eu-west-2)
+      IamInstanceProfile: !Ref JenkinsInstanceProfile
+      Tags:
+        - Key: "Name"
+          Value: "Jenkins-EC2-Instance"
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install -y java-1.8.0-openjdk
+          wget -O /etc/yum.repos.d/jenkins.repo https://pkg.jenkins.io/redhat/jenkins.repo
+          rpm --import https://pkg.jenkins.io/redhat/jenkins.io.key
+          yum install jenkins -y
+          systemctl start jenkins
+          systemctl enable jenkins
+
+  JenkinsRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: "ec2.amazonaws.com"
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: "s3-upload-policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action: "s3:PutObject"
+                Resource: !Sub "arn:aws:s3:::${S3Bucket}/*"
+
+  JenkinsInstanceProfile:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      Path: "/"
+      Roles:
+        - !Ref JenkinsRole
+
+Outputs:
+  InstanceId:
+    Description: "The Instance ID"
+    Value: !Ref JenkinsEC2Instance
+  PublicIP:
+    Description: "The public IP address"
+    Value: !GetAtt [JenkinsEC2Instance, PublicIp]
+  PublicDNS:
+    Description: "The public DNS name"
+    Value: !GetAtt [JenkinsEC2Instance, PublicDnsName]
